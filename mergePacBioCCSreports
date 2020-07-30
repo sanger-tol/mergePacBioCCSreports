@@ -1,0 +1,104 @@
+#!/usr/bin/env perl
+#
+#    Copyright (C) 2020 Genome Research Ltd.
+#
+#    Author: Shane McCarthy <sm15@sanger.ac.uk>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+
+use strict;
+use warnings;
+
+sub usage
+{
+    print "Usage: mergePacBioCCSreports ccs_report.txt [ccs_report.txt ...] > merged_ccs_report.txt\n";
+    exit;
+}
+
+usage() if (!(scalar @ARGV) && -t STDIN);
+
+# Example ccs_report.txt file:
+
+# ZMWs input          (A)  : 76312
+# ZMWs generating CCS (B)  : 29010 (38.01%)
+# ZMWs filtered       (C)  : 47302 (61.99%)
+
+# Exclusive ZMW counts for (C):
+# Median length filter     : 0 (0.00%)
+# Below SNR threshold      : 1171 (2.48%)
+# Lacking full passes      : 39289 (83.06%)
+# Heteroduplex insertions  : 510 (1.08%)
+# Coverage drops           : 132 (0.28%)
+# Insufficient draft cov   : 1193 (2.52%)
+# Draft too different      : 82 (0.17%)
+# Draft generation error   : 264 (0.56%)
+# Draft above --max-length : 8 (0.02%)
+# Draft below --min-length : 0 (0.00%)
+# Reads failed polishing   : 0 (0.00%)
+# Empty coverage windows   : 160 (0.34%)
+# CCS did not converge     : 8 (0.02%)
+# CCS below minimum RQ     : 4493 (9.50%)
+# Unknown error            : 0 (0.00%)
+
+my @headerkeys = (
+    "ZMWs input          (A)",
+    "ZMWs generating CCS (B)",
+    "ZMWs filtered       (C)",
+    "\nExclusive ZMW counts for (C):\n",
+);
+
+my $counts;
+my @keys;
+
+# Read all the input reports, accumulating counts for each category
+while (<>)
+{
+    chomp;
+    my ($key,$value) = split / : /;
+    next unless (defined $value);
+    $key =~ s/\s+$//; # remove white space from keys
+    $value =~ s/\s.+$//; # value will just be the count - strips off the percentage
+    push @keys, $key unless (exists $$counts{"$key"}); # track order of the keys, so we can print out in same order
+    $$counts{"$key"} += $value; # accumulate counts
+}
+
+# Print out the accumulated counts and corresponding percentages for each category
+foreach my $key (@keys)
+{
+    printf "%-25s", $key;
+    if (exists $$counts{$key})
+    {
+        my $value = $$counts{$key};
+        if ($key eq "ZMWs input          (A)") # total line does not need a percent following
+        {
+            print ": $value\n";
+        }
+        else
+        {
+            # Denominator for overall ZMW counts is all (A) ZMWs.
+            # For everything else, denominator is filtered (C) ZMWs
+            my $denom = $key =~ /^ZMW/ ? $$counts{"ZMWs input          (A)"} : $$counts{"ZMWs filtered       (C)"};
+            printf ": %d (%0.2f%%)\n", $value, 100 * $value / $denom;
+            if ($key eq "ZMWs filtered       (C)")
+            {
+                print "\nExclusive ZMW counts for (C):\n"; # Print this to match format of the individual input ccs_report.txt files
+            }
+        }
+    }
+}
